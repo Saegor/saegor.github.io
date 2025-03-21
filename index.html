@@ -2,8 +2,12 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8">
-    <title>Visualisation Audio Minimaliste</title>
+    <!-- Définition d'une Content Security Policy basique pour limiter les ressources autorisées -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-abc123'; style-src 'self' 'unsafe-inline'; connect-src 'self'">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualisation Audio Minimaliste - Sécurisé</title>
     <style>
+      /* Styles locaux pour limiter l'exposition à des ressources externes */
       body {
         display: flex;
         flex-direction: column;
@@ -13,6 +17,7 @@
         margin: 0;
         background: #222;
         color: white;
+        font-family: sans-serif;
       }
       canvas {
         background: #333;
@@ -21,15 +26,20 @@
         margin-top: 20px;
         padding: 10px 20px;
         font-size: 16px;
+        cursor: pointer;
       }
     </style>
   </head>
   <body>
-    <h1>Test Micro et Visualisation</h1>
+    <h1>Test Micro & Visualisation Sécurisé</h1>
     <canvas id="canvas" width="300" height="300"></canvas>
     <button id="startBtn">Démarrer l'acquisition audio</button>
-    <script>
-      // Récupération du canvas et du contexte
+
+    <!-- Utilisation d'un nonce (ici "abc123") pour autoriser le script en ligne -->
+    <script nonce="abc123">
+      'use strict';
+      
+      // Récupération sécurisée du canvas et du contexte
       const canvas = document.getElementById('canvas');
       const ctx = canvas.getContext('2d');
       const width = canvas.width;
@@ -55,7 +65,7 @@
           ctx.fill();
           ctx.closePath();
         } else {
-          // Passe au vert sombre et illuminate en fonction du volume
+          // Passe au vert sombre et s'illumine en fonction du volume
           let lightness = Math.min(50 + (currentVolume / 255) * 50, 100);
           ctx.fillStyle = `hsl(120, 100%, ${lightness}%)`;
           ctx.beginPath();
@@ -65,7 +75,7 @@
         }
       };
 
-      // Boucle d'animation
+      // Boucle d'animation utilisant requestAnimationFrame
       const animate = () => {
         drawCircle();
         requestAnimationFrame(animate);
@@ -74,16 +84,17 @@
 
       // Fonction d'initialisation audio
       const initAudio = () => {
-        if (audioInitialized) return; // Prévenir plusieurs initialisations
+        if (audioInitialized) return; // Évite plusieurs initialisations
         audioInitialized = true;
 
+        // Demande d'accès au micro, qui doit être en HTTPS (ou localhost)
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then(stream => {
             audioAcquired = true;
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(stream);
 
-            // Création d'un AnalyserNode pour traiter l'audio
+            // Création d'un AnalyserNode pour analyser l'audio en temps réel
             const analyser = audioContext.createAnalyser();
             analyser.fftSize = 2048;
             const bufferLength = analyser.fftSize;
@@ -100,7 +111,7 @@
                 sum += Math.abs(x);
               }
               let average = sum / bufferLength;
-              currentVolume = Math.min(average * 3, 255);  // Remapper dans [0, 255]
+              currentVolume = Math.min(average * 3, 255); // Remappage dans [0, 255]
               requestAnimationFrame(analyze);
             };
             analyze();
@@ -110,11 +121,11 @@
           });
       };
 
-      // Bouton pour lancer l'acquisition audio
+      // Bouton pour lancer l'acquisition audio, déclenché par une action utilisateur
       const btn = document.getElementById('startBtn');
       btn.addEventListener('click', () => {
         initAudio();
-        btn.disabled = true; // Désactive le bouton après initiation
+        btn.disabled = true; // Désactivation du bouton après l'initialisation
         btn.innerText = "Audio en cours d'acquisition";
       });
     </script>
