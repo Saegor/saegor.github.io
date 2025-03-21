@@ -17,11 +17,17 @@
       canvas {
         background: #333;
       }
+      button {
+        margin-top: 20px;
+        padding: 10px 20px;
+        font-size: 16px;
+      }
     </style>
   </head>
   <body>
     <h1>Test Micro et Visualisation</h1>
     <canvas id="canvas" width="300" height="300"></canvas>
+    <button id="startBtn">Démarrer l'acquisition audio</button>
     <script>
       // Récupération du canvas et du contexte
       const canvas = document.getElementById('canvas');
@@ -35,6 +41,7 @@
       // Variables pour le volume courant et l'état d'acquisition audio
       let currentVolume = 0;
       let audioAcquired = false;
+      let audioInitialized = false;
 
       // Fonction de dessin du cercle en fonction de l'état et du volume
       const drawCircle = () => {
@@ -48,10 +55,8 @@
           ctx.fill();
           ctx.closePath();
         } else {
-          // Passe au vert sombre et s'illumine en fonction du volume
-          // currentVolume est compris entre 0 et 255 ; on remappe la luminosité de 50% à 100%
+          // Passe au vert sombre et illuminate en fonction du volume
           let lightness = Math.min(50 + (currentVolume / 255) * 50, 100);
-          // Utilise HSL pour obtenir une teinte verte (120°)
           ctx.fillStyle = `hsl(120, 100%, ${lightness}%)`;
           ctx.beginPath();
           ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -67,40 +72,51 @@
       };
       animate();
 
-      // Tentative d'accès au microphone
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          audioAcquired = true;
-          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          const source = audioContext.createMediaStreamSource(stream);
+      // Fonction d'initialisation audio
+      const initAudio = () => {
+        if (audioInitialized) return; // Prévenir plusieurs initialisations
+        audioInitialized = true;
 
-          // Création d'un AnalyserNode pour traiter l'audio
-          const analyser = audioContext.createAnalyser();
-          analyser.fftSize = 2048;
-          const bufferLength = analyser.fftSize;
-          const dataArray = new Uint8Array(bufferLength);
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(stream => {
+            audioAcquired = true;
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(stream);
 
-          source.connect(analyser);
+            // Création d'un AnalyserNode pour traiter l'audio
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            const bufferLength = analyser.fftSize;
+            const dataArray = new Uint8Array(bufferLength);
 
-          // Fonction d'analyse du volume sonore
-          const analyze = () => {
-            analyser.getByteTimeDomainData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < bufferLength; i++) {
-              // Le signal audio est centré sur 128, on calcule l'écart absolu
-              let x = dataArray[i] - 128;
-              sum += Math.abs(x);
-            }
-            let average = sum / bufferLength;
-            // Remappe l'échelle du volume pour l'animation (0 à 255)
-            currentVolume = Math.min(average * 3, 255);  // Facteur d'amplification ajustable
-            requestAnimationFrame(analyze);
-          };
-          analyze();
-        })
-        .catch(err => {
-          console.error("Erreur lors de l'accès au micro :", err);
-        });
+            source.connect(analyser);
+
+            // Fonction d'analyse du volume sonore
+            const analyze = () => {
+              analyser.getByteTimeDomainData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < bufferLength; i++) {
+                let x = dataArray[i] - 128;
+                sum += Math.abs(x);
+              }
+              let average = sum / bufferLength;
+              currentVolume = Math.min(average * 3, 255);  // Remapper dans [0, 255]
+              requestAnimationFrame(analyze);
+            };
+            analyze();
+          })
+          .catch(err => {
+            console.error("Erreur lors de l'accès au micro :", err);
+          });
+      };
+
+      // Bouton pour lancer l'acquisition audio
+      const btn = document.getElementById('startBtn');
+      btn.addEventListener('click', () => {
+        initAudio();
+        btn.disabled = true; // Désactive le bouton après initiation
+        btn.innerText = "Audio en cours d'acquisition";
+      });
     </script>
   </body>
 </html>
