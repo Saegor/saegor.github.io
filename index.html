@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyseur de Spectre Audio</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+        }
+        canvas {
+            width: 100%; /* Prendre toute la largeur */
+            height: 400px; /* Hauteur du graphique */
+        }
+    </style>
+</head>
+<body>
+    <h1>Analyseur de Spectre Audio</h1>
+    <button id="startButton">Démarrer l'acquisition du son</button>
+    <canvas id="myChart"></canvas>
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const myChart = new Chart(ctx, {
+            type: 'bar', // Utiliser un graphique à barres
+            data: {
+                labels: Array.from({ length: 512 }, (_, i) => i), // 512 points pour l'axe X
+                datasets: [{
+                    label: 'Spectre Audio',
+                    data: Array(512).fill(0), // Initialiser les données à zéro
+                    backgroundColor: 'rgba(75, 192, 192, 0.5)', // Couleur des barres
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true, // Rendre le graphique réactif
+                maintainAspectRatio: false, // Ne pas maintenir le ratio d'aspect
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Fréquence (bins)'
+                        },
+                        grid: {
+                            display: false // Masquer la grille pour l'axe X
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Amplitude'
+                        },
+                        min: 0,
+                        max: 255 // Valeur maximale pour les données de fréquence
+                    }
+                }
+            }
+        });
+
+        document.getElementById('startButton').addEventListener('click', async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 2048; // Taille de la FFT
+            const bufferLength = analyser.frequencyBinCount; // Nombre de bins
+            const dataArray = new Uint8Array(bufferLength);
+
+            const updateChart = () => {
+                analyser.getByteFrequencyData(dataArray); // Obtenir les données de fréquence
+
+                // Mettre à jour les données du graphique
+                for (let i = 0; i < bufferLength; i++) {
+                    myChart.data.datasets[0].data[i] = dataArray[i];
+                }
+                myChart.update('none'); // Mettre à jour sans animation
+
+                // Appeler updateChart plus fréquemment pour une meilleure réactivité
+                requestAnimationFrame(updateChart);
+            };
+
+            // Démarrer la mise à jour du graphique
+            updateChart();
+        });
+    </script>
+</body>
+</html>
