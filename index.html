@@ -2,12 +2,12 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8">
-    <!-- Définition d'une Content Security Policy basique pour limiter les ressources autorisées -->
+    <!-- Content Security Policy limitant aux ressources locales et autorisant le script avec nonce -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-abc123'; style-src 'self' 'unsafe-inline'; connect-src 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualisation Audio Minimaliste - Sécurisé</title>
+    <title>Spectre Audio Sécurisé</title>
     <style>
-      /* Styles locaux pour limiter l'exposition à des ressources externes */
+      /* Styles locaux afin de ne pas charger de ressources externes */
       body {
         display: flex;
         flex-direction: column;
@@ -28,106 +28,93 @@
         font-size: 16px;
         cursor: pointer;
       }
+      h1 {
+        margin-bottom: 20px;
+      }
     </style>
   </head>
   <body>
-    <h1>Test Micro & Visualisation Sécurisé</h1>
-    <canvas id="canvas" width="300" height="300"></canvas>
+    <h1>Spectre Audio Sécurisé</h1>
+    <canvas id="canvas" width="800" height="400"></canvas>
     <button id="startBtn">Démarrer l'acquisition audio</button>
 
-    <!-- Utilisation d'un nonce (ici "abc123") pour autoriser le script en ligne -->
+    <!-- Utilisation d'un nonce pour valider le script inline -->
     <script nonce="abc123">
       'use strict';
       
-      // Récupération sécurisée du canvas et du contexte
+      // Récupération du canvas et du contexte
       const canvas = document.getElementById('canvas');
       const ctx = canvas.getContext('2d');
-      const width = canvas.width;
-      const height = canvas.height;
-      const centerX = width / 2;
-      const centerY = height / 2;
-      const radius = Math.min(width, height) * 0.3;
+      const WIDTH = canvas.width;
+      const HEIGHT = canvas.height;
 
-      // Variables pour le volume courant et l'état d'acquisition audio
-      let currentVolume = 0;
+      // Variables d'état pour l'audio
       let audioAcquired = false;
       let audioInitialized = false;
 
-      // Fonction de dessin du cercle en fonction de l'état et du volume
-      const drawCircle = () => {
-        ctx.clearRect(0, 0, width, height);
+      // Variables pour stocker l'analyse spectrale
+      let analyser, dataArray, bufferLength;
 
+      // Fonction de dessin du spectre sonore
+      const drawSpectrum = () => {
+        ctx.clearRect(0, 0, WIDTH, HEIGHT);
         if (!audioAcquired) {
-          // Affiche un cercle rouge si le son n'est pas acquis
+          // Affiche un message en rouge quand le son n'est pas acquis
           ctx.fillStyle = "red";
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.closePath();
+          ctx.font = "24px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText("Micro non acquis", WIDTH / 2, HEIGHT / 2);
         } else {
-          // Passe au vert sombre et s'illumine en fonction du volume
-          let lightness = Math.min(50 + (currentVolume / 255) * 50, 100);
-          ctx.fillStyle = `hsl(120, 100%, ${lightness}%)`;
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.closePath();
+          // Dessine le spectre sonore (1024 bins)
+          analyser.getByteFrequencyData(dataArray);
+          const barWidth = WIDTH / bufferLength;
+          let x = 0;
+          
+          for (let i = 0; i < bufferLength; i++) {
+            // La valeur de chaque barre est comprise entre 0 et 255
+            const barHeight = (dataArray[i] / 255) * HEIGHT;
+            // On utilise une couleur dynamique en fonction de la hauteur de la barre
+            ctx.fillStyle = `hsl(${(dataArray[i] / 255) * 120}, 100%, 50%)`;
+            ctx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
+            x += barWidth;
+          }
         }
+        requestAnimationFrame(drawSpectrum);
       };
 
-      // Boucle d'animation utilisant requestAnimationFrame
-      const animate = () => {
-        drawCircle();
-        requestAnimationFrame(animate);
-      };
-      animate();
-
-      // Fonction d'initialisation audio
+      // Fonction pour initialiser l'audio et l'analyse FFT
       const initAudio = () => {
-        if (audioInitialized) return; // Évite plusieurs initialisations
+        if (audioInitialized) return;
         audioInitialized = true;
-
-        // Demande d'accès au micro, qui doit être en HTTPS (ou localhost)
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then(stream => {
             audioAcquired = true;
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(stream);
 
-            // Création d'un AnalyserNode pour analyser l'audio en temps réel
-            const analyser = audioContext.createAnalyser();
+            // Utilisation d'un fftSize de 2048 pour obtenir 1024 bins de fréquence
+            analyser = audioContext.createAnalyser();
             analyser.fftSize = 2048;
-            const bufferLength = analyser.fftSize;
-            const dataArray = new Uint8Array(bufferLength);
+            bufferLength = analyser.frequencyBinCount; // Doit être 1024
+            dataArray = new Uint8Array(bufferLength);
 
             source.connect(analyser);
-
-            // Fonction d'analyse du volume sonore
-            const analyze = () => {
-              analyser.getByteTimeDomainData(dataArray);
-              let sum = 0;
-              for (let i = 0; i < bufferLength; i++) {
-                let x = dataArray[i] - 128;
-                sum += Math.abs(x);
-              }
-              let average = sum / bufferLength;
-              currentVolume = Math.min(average * 3, 255); // Remappage dans [0, 255]
-              requestAnimationFrame(analyze);
-            };
-            analyze();
           })
           .catch(err => {
             console.error("Erreur lors de l'accès au micro :", err);
           });
       };
 
-      // Bouton pour lancer l'acquisition audio, déclenché par une action utilisateur
+      // Démarrer l'acquisition audio au clic de l'utilisateur
       const btn = document.getElementById('startBtn');
       btn.addEventListener('click', () => {
         initAudio();
-        btn.disabled = true; // Désactivation du bouton après l'initialisation
+        btn.disabled = true;
         btn.innerText = "Audio en cours d'acquisition";
       });
+
+      // Début de l'animation pour le graphique du spectre
+      drawSpectrum();
     </script>
   </body>
 </html>
