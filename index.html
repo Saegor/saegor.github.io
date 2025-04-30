@@ -1,120 +1,179 @@
 <!DOCTYPE html>
 <html lang="fr">
   <head>
-    <meta charset="UTF-8">
-    <!-- Content Security Policy limitant aux ressources locales et autorisant le script avec nonce -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-abc123'; style-src 'self' 'unsafe-inline'; connect-src 'self'">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spectre Audio Sécurisé</title>
+    <meta charset="UTF-8" />
+    <title>Shader WebGL Intégré</title>
     <style>
-      /* Styles locaux afin de ne pas charger de ressources externes */
-      body {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100vh;
+      html, body {
         margin: 0;
-        background: #222;
-        color: white;
-        font-family: sans-serif;
+        padding: 0;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        background: #000;
       }
       canvas {
-        background: #333;
-      }
-      button {
-        margin-top: 20px;
-        padding: 10px 20px;
-        font-size: 16px;
-        cursor: pointer;
-      }
-      h1 {
-        margin-bottom: 20px;
+        display: block;
       }
     </style>
   </head>
   <body>
-    <h1>Spectre Audio Sécurisé</h1>
-    <canvas id="canvas" width="800" height="400"></canvas>
-    <button id="startBtn">Démarrer l'acquisition audio</button>
+    <canvas id="glCanvas"></canvas>
+    <script>
+      // Récupération du canvas et initialisation de WebGL
+      const canvas = document.getElementById('glCanvas');
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const gl = canvas.getContext('webgl');
+      if (!gl) {
+        alert("Votre navigateur ne supporte pas WebGL.");
+        throw new Error("WebGL non supporté");
+      }
 
-    <!-- Utilisation d'un nonce pour valider le script inline -->
-    <script nonce="abc123">
-      'use strict';
-      
-      // Récupération du canvas et du contexte
-      const canvas = document.getElementById('canvas');
-      const ctx = canvas.getContext('2d');
-      const WIDTH = canvas.width;
-      const HEIGHT = canvas.height;
-
-      // Variables d'état pour l'audio
-      let audioAcquired = false;
-      let audioInitialized = false;
-
-      // Variables pour stocker l'analyse spectrale
-      let analyser, dataArray, bufferLength;
-
-      // Fonction de dessin du spectre sonore
-      const drawSpectrum = () => {
-        ctx.clearRect(0, 0, WIDTH, HEIGHT);
-        if (!audioAcquired) {
-          // Affiche un message en rouge quand le son n'est pas acquis
-          ctx.fillStyle = "red";
-          ctx.font = "24px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("Micro non acquis", WIDTH / 2, HEIGHT / 2);
-        } else {
-          // Dessine le spectre sonore (1024 bins)
-          analyser.getByteFrequencyData(dataArray);
-          const barWidth = WIDTH / bufferLength;
-          let x = 0;
-          
-          for (let i = 0; i < bufferLength; i++) {
-            // La valeur de chaque barre est comprise entre 0 et 255
-            const barHeight = (dataArray[i] / 255) * HEIGHT;
-            // On utilise une couleur dynamique en fonction de la hauteur de la barre
-            ctx.fillStyle = `hsl(${(dataArray[i] / 255) * 120}, 100%, 50%)`;
-            ctx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
-            x += barWidth;
-          }
+      // Fonction de compilation d'un shader
+      function compileShader(gl, source, type) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          const info = gl.getShaderInfoLog(shader);
+          gl.deleteShader(shader);
+          throw new Error("Erreur de compilation du shader : " + info);
         }
-        requestAnimationFrame(drawSpectrum);
-      };
+        return shader;
+      }
 
-      // Fonction pour initialiser l'audio et l'analyse FFT
-      const initAudio = () => {
-        if (audioInitialized) return;
-        audioInitialized = true;
-        navigator.mediaDevices.getUserMedia({ audio: true })
-          .then(stream => {
-            audioAcquired = true;
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioContext.createMediaStreamSource(stream);
+      // Vertex shader minimal
+      const vertexShaderSource = `
+        attribute vec2 a_position;
+        void main(void) {
+          gl_Position = vec4(a_position, 0.0, 1.0);
+        }
+      `;
 
-            // Utilisation d'un fftSize de 2048 pour obtenir 1024 bins de fréquence
-            analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048;
-            bufferLength = analyser.frequencyBinCount; // Doit être 1024
-            dataArray = new Uint8Array(bufferLength);
+      // Fragment shader tel que fourni, intégré directement.
+      const fragmentShaderSource = `
 
-            source.connect(analyser);
-          })
-          .catch(err => {
-            console.error("Erreur lors de l'accès au micro :", err);
-          });
-      };
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
 
-      // Démarrer l'acquisition audio au clic de l'utilisateur
-      const btn = document.getElementById('startBtn');
-      btn.addEventListener('click', () => {
-        initAudio();
-        btn.disabled = true;
-        btn.innerText = "Audio en cours d'acquisition";
-      });
+        // Uniformes
+        uniform vec2 resolution;
+        uniform float time;
 
-      // Début de l'animation pour le graphique du spectre
-      drawSpectrum();
+        // Constantes
+        const float TAU = 6.283;
+        const float GRID_SIZE = 64.0;
+        const float SCALE = 128.0;
+
+        // Fonction qui module le temps selon la formule
+        // x + sin(π + x * 2π) / (2π)
+        float oscillateTime(float x) {
+            return x + sin(TAU/2.0 + x * TAU) / TAU;
+        }
+
+        void main(void) {
+            // Recentrage et normalisation de la position du fragment
+            vec2 pos = gl_FragCoord.xy;
+            pos -= resolution / 2.0;
+            pos /= resolution / 2.0;
+            
+            // Ajustement du ratio pour corriger l'aspect
+            float ratio = sqrt(resolution.x / resolution.y);
+            pos *= vec2(ratio, 1.0 / ratio);
+            
+            // Application d'un effet de grille
+            pos = floor(pos * GRID_SIZE) / GRID_SIZE;
+            
+            // Passage en coordonnées polaires
+            float angle = atan(pos.y, pos.x);
+            float distance = length(pos);
+            
+            distance *= 1.0 + SCALE * oscillateTime(time);
+            distance += angle;
+            
+            // Calcul de la couleur avec des déphasages sinusoïdaux
+            vec3 color = vec3(
+                sin(distance + TAU / 6.0),
+                sin(distance),
+                sin(distance - TAU / 6.0)
+            );
+            
+            // Normalisation dans l'intervalle [0,1]
+            color = (color + 1.0) / 2.0;
+            
+            // Sortie finale du fragment
+            gl_FragColor = vec4(color, 1.0);
+        }
+      `;
+
+      // Compilation des shaders
+      const vertexShader = compileShader(gl, vertexShaderSource, gl.VERTEX_SHADER);
+      const fragmentShader = compileShader(gl, fragmentShaderSource, gl.FRAGMENT_SHADER);
+
+      // Création du programme WebGL, attache les shaders puis les link
+      const program = gl.createProgram();
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const info = gl.getProgramInfoLog(program);
+        throw new Error("Erreur de linkage du programme : " + info);
+      }
+      gl.useProgram(program);
+
+      // Définition de la géométrie : un rectangle couvrant tout l'écran composé de 2 triangles
+      const positionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      const positions = [
+         -1, -1,
+          1, -1,
+         -1,  1,
+         -1,  1,
+          1, -1,
+          1,  1
+      ];
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+      // Liaison de l'attribut de position dans le vertex shader
+      const positionLocation = gl.getAttribLocation(program, "a_position");
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+      // Récupération des emplacements des uniformes dans le programme
+      const resolutionLocation = gl.getUniformLocation(program, "resolution");
+      const timeLocation = gl.getUniformLocation(program, "time");
+
+      // Initialisation de uniformes fixes
+      gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+
+      // Variables pour le temps
+      let startTime = performance.now();
+
+      // Fonction de rendu
+      function render() {
+        // Calcul du temps écoulé (en secondes)
+        let currentTime = performance.now();
+        let elapsedTime = (currentTime - startTime) / 1000;
+
+        // Mise à jour du temps dans le shader
+        gl.uniform1f(timeLocation, elapsedTime);
+
+        // Définition du viewport et effacement de la zone
+        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        // Dessin du rectangle
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Demande d'une nouvelle frame
+        requestAnimationFrame(render);
+      }
+
+      // Lancement du rendu
+      render();
     </script>
   </body>
 </html>
